@@ -10,6 +10,10 @@ from typing import Literal
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
+from torch.nn import Parameter
+
 
 
 class SimpleMLP(nn.Module):
@@ -86,7 +90,7 @@ class ResNet(nn.Module):
         self.input_projection = nn.Linear(d_in, d_block)
         self.blocks = nn.ModuleList(
             [
-                _named_sequential(
+                nn.Sequential(
                     ('normalization', nn.BatchNorm1d(d_block)),
                     ('linear1', nn.Linear(d_block, d_hidden)),
                     ('activation', nn.ReLU()),
@@ -100,7 +104,7 @@ class ResNet(nn.Module):
         self.output = (
             None
             if d_out is None
-            else _named_sequential(
+            else nn.Sequential(
                 ('normalization', nn.BatchNorm1d(d_block)),
                 ('activation', nn.ReLU()),
                 ('linear', nn.Linear(d_block, d_out)),

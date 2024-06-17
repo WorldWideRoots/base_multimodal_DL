@@ -5,13 +5,14 @@ import torch
 import matplotlib.pyplot as plt
 
 class Trainer:
-    def __init__(self, model, num_epochs:int, train_loader, val_loader, optimizer_constructor, optimizer_params, scheduler_constructor, scheduler_params, loss_function, device, save_path:str, saving_mode='best', scheduler_step_per_epoch:bool=False):
+    def __init__(self, model, num_epochs:int, train_loader, val_loader, optimizer_constructor, optimizer_params, scheduler_constructor, 
+                 scheduler_params, loss_function, device, save_path:str, saving_mode='best', scheduler_step_per_epoch:bool=False):
         self.model = model.to(device)
         self.num_epochs = num_epochs   
         self.train_loader = train_loader
         self.val_loader = val_loader
-        self.optimizer = optimizer_constructor(self.model.parameters(), **optimizer_params)
-        self.scheduler = scheduler_constructor(self.optimizer, **scheduler_params) if scheduler_constructor is not None else None
+        if not isinstance(optimizer_params, list): self.optimizer = optimizer_constructor(self.model.parameters(), **optimizer_params)
+        if not isinstance(scheduler_params, list): self.scheduler = scheduler_constructor(self.optimizer, **scheduler_params) if scheduler_constructor is not None else None
         self.scheduler_step_per_epoch=scheduler_step_per_epoch
         self.loss_function = loss_function
         self.device = device
@@ -109,17 +110,13 @@ class Trainer:
 
 
 class DynamicFrozenTrainer(Trainer):
-    def __init__(self, model, train_loader, val_loader, freeze_epochs, optimizer_params_list, scheduler_params_list, loss_function, device, saving_mode='best'):
-        self.model = model.to(device)
-        self.train_loader = train_loader
-        self.val_loader = val_loader
-        self.loss_function = loss_function
-        self.device = device
-        self.saving_mode = saving_mode
-        self.best_val_loss = float('inf')
-        self.train_losses = []
+    def __init__(self, model, num_epochs:int, train_loader, val_loader, freeze_epochs, optimizer_params_list, scheduler_params_list,
+                  loss_function, device, save_path:str, saving_mode='best', scheduler_step_per_epoch:bool=False):
+        super().__init__(model=model, num_epochs=num_epochs, train_loader=train_loader, val_loader=val_loader, optimizer_constructor=None,
+                         optimizer_params=[], scheduler_constructor=None, scheduler_params=[], loss_function=loss_function, device=device,
+                         save_path=save_path, saving_mode=saving_mode, scheduler_step_per_epoch=scheduler_step_per_epoch)
+
         self.freeze_epochs = freeze_epochs or {}
-        self.val_losses = []
         self.optimizer_params_list = optimizer_params_list
         self.scheduler_params_list = scheduler_params_list
         self.current_phase = 0  # Index to track the current phase
