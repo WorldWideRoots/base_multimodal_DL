@@ -1,21 +1,34 @@
-# trying to build a class that will train the model
+import copy
+import gc
 
 import torch
 import matplotlib.pyplot as plt
 
 class Trainer:
-    def __init__(self, model, train_loader, val_loader, optimizer_constructor, optimizer_params, scheduler_constructor, scheduler_params, loss_function, device, saving_mode='best'):
+    def __init__(self, model, num_epochs:int, train_loader, val_loader, optimizer_constructor, optimizer_params, scheduler_constructor, scheduler_params, loss_function, device, save_path:str, saving_mode='best', scheduler_step_per_epoch:bool=False):
         self.model = model.to(device)
+        self.num_epochs = num_epochs   
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.optimizer = optimizer_constructor(self.model.parameters(), **optimizer_params)
-        self.scheduler = scheduler_constructor(self.optimizer, **scheduler_params)
+        self.scheduler = scheduler_constructor(self.optimizer, **scheduler_params) if scheduler_constructor is not None else None
+        self.scheduler_step_per_epoch=scheduler_step_per_epoch
         self.loss_function = loss_function
         self.device = device
+        self.save_path = save_path
         self.saving_mode = saving_mode
         self.best_val_loss = float('inf')
+        self.best_epoch = 0
         self.train_losses = []
         self.val_losses = []
+
+        self.training_log_path = f'{self.save_path}/training_log.txt'
+        with open(self.training_log_path, 'w') as f:
+            f.write('Start the training run\n')
+
+    def write_log(self, message):
+        with open(self.training_log_path, 'a') as f:
+            f.write(message + '\n')
 
     def train_one_epoch(self):
         self.model.train()
@@ -27,10 +40,16 @@ class Trainer:
             loss = self.loss_function(outputs, labels)
             loss.backward()
             self.optimizer.step()
+            if self.scheduler is not None and not self.scheduler_step_per_epoch: # Step scheduler if not done per epoch
+                self.scheduler.step()
             total_loss += loss.item()
+
+            del inputs, labels, outputs, loss
+            torch.cuda.empty_cache()
+
         avg_loss = total_loss / len(self.train_loader)
         self.train_losses.append(avg_loss)
-        self.scheduler.step()
+        if self.scheduler is not None and self.scheduler_step_per_epoch: self.scheduler.step()
         return avg_loss
 
     def validate(self):
@@ -42,24 +61,42 @@ class Trainer:
                 outputs = self.model(inputs)
                 loss = self.loss_function(outputs, labels)
                 total_loss += loss.item()
+
+                del inputs, labels, outputs, loss
+                torch.cuda.empty_cache()
+
         avg_loss = total_loss / len(self.val_loader)
         self.val_losses.append(avg_loss)
         return avg_loss
 
     def save_model(self, epoch, val_loss):
-        if self.saving_mode == 'best':
+        if self.saving_mode == 'all' or (self.saving_mode == 'best' and val_loss < self.best_val_loss):
+            save_path = f'{self.save_path}/model_at_epoch{epoch}.pth' if self.saving_mode == 'all' else f'{self.save_path}/best_model_at_epoch{epoch}.pth'
+            torch.save(self.model.state_dict(), save_path)
+            
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
-                torch.save(self.model.state_dict(), f"best_model_epoch_{epoch}.pth")
-        elif self.saving_mode == 'all':
-            torch.save(self.model.state_dict(), f"model_epoch_{epoch}.pth")
+                self.best_epoch = epoch
+                self.best_model = copy.deepcopy(self.model)
+                message = f"Model improved at epoch {epoch} with validation loss of {val_loss}!"
+                print(message)
+                self.write_log(message)
 
-    def train(self, epochs):
-        for epoch in range(epochs):
+    def fit(self):
+        for epoch in range(self.num_epochs):
             train_loss = self.train_one_epoch()
             val_loss = self.validate()
-            print(f"Epoch {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}")
+
+            message = f"Epoch {epoch}, Train Loss: {train_loss}, Validation Loss: {val_loss}"
+            print(message)
+            self.write_log(message)
+
             self.save_model(epoch, val_loss)
+            
+            del train_loss, val_loss
+            torch.cuda.empty_cache()
+            gc.collect()
+
         self.plot_losses()
 
     def plot_losses(self):
@@ -106,11 +143,17 @@ class DynamicFrozenTrainer(Trainer):
                 param.requires_grad = False
         self.switch_phase(self.current_phase+1)  # Re-initialize optimizer and scheduler with updated parameters
 
+        message = f"Freezing layers: {layer_names}"
+        self.write_log(message)
+
     def unfreeze_layers(self, layer_names):
         for name, param in self.model.named_parameters():
             if any(layer_name in name for layer_name in layer_names):
                 param.requires_grad = True
         self.switch_phase(self.current_phase+1)  # Re-initialize optimizer and scheduler with updated parameters
+
+        message = f"Unfreezing layers: {layer_names}"
+        self.write_log(message)
 
     def train_one_epoch(self, epoch):
         # Check if we need to freeze/unfreeze at this epoch
