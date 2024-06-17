@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import Dataset
+from torch.utils.data import Dataset
 
 import numpy as np
 import pandas as pd
@@ -23,22 +23,24 @@ class MultimodalFullyAlignedDataset(Dataset): # inherit from torch Dataset
             data_dict[modality] = self.full_data_dict[modality][idx,:]
         return data_dict
 
-class FullAlignedChemTabDataset(Dataset): # inherit from torch Dataset
-    def __init__(self, tabular_data, smiles_data, target_data):
+class FullAlignedTabChemDataset(Dataset): # inherit from torch Dataset
+    def __init__(self, tabular_data, smiles_data, target_data, modalities:list):
         assert len(tabular_data) == len(smiles_data), "Tabular data and SMILES data must have the same length."
         self.tabular_data = tabular_data
         self.smiles_data = smiles_data
         self.target_data = target_data
+        self.modalities = modalities
         
     def __len__(self):
         return len(self.tabular_data)
     
     def __getitem__(self, idx):
-        tabular_data = self.tabular_data[idx]
-        smiles_data = self.smiles_data[idx]
+        data_dict = {}
+        data_dict[self.modalities[0]] = self.tabular_data[idx,:]
+        data_dict[self.modalities[1]] = self.smiles_data[idx]
         target_data = self.target_data[idx]
         
-        return tabular_data, smiles_data, target_data
+        return data_dict, target_data
     
 class TabularDataset(Dataset):
     def __init__(self, tabular_data, target_data):
